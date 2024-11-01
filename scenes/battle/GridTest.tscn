@@ -1,13 +1,69 @@
-[gd_scene load_steps=3 format=3 uid="uid://dus2f8v06tv1k"]
+[gd_scene load_steps=6 format=3 uid="uid://dus2f8v06tv1k"]
 
 [ext_resource type="Script" path="res://scripts/test/grid_test.gd" id="1_3qegs"]
 [ext_resource type="Script" path="res://scripts/battle/grid_manager.gd" id="1_ysxlc"]
+[ext_resource type="Script" path="res://scripts/battle/battle_manager.gd" id="3_ooewx"]
+[ext_resource type="Script" path="res://scripts/battle/turn_manager.gd" id="4_0wk8t"]
+[ext_resource type="Script" path="res://scripts/battle/battle_ui.gd" id="5_xse36"]
 
 [node name="GridTest" type="Node3D"]
 script = ExtResource("1_3qegs")
 
 [node name="GridManager" type="Node3D" parent="."]
 script = ExtResource("1_ysxlc")
+
+[node name="BattleManager" type="Node" parent="."]
+script = ExtResource("3_ooewx")
+
+[node name="TurnManager" type="Node" parent="."]
+script = ExtResource("4_0wk8t")
+
+[node name="BattleUI" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 0
+offset_right = 40.0
+offset_bottom = 40.0
+script = ExtResource("5_xse36")
+
+[node name="TurnLabel" type="Label" parent="BattleUI"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="Label" type="Label" parent="BattleUI"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="UnitInfoPanel" type="Panel" parent="BattleUI"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="HPBar" type="ProgressBar" parent="BattleUI/UnitInfoPanel"]
+layout_mode = 0
+offset_right = 4.0
+offset_bottom = 27.0
+
+[node name="HPLabel" type="Label" parent="BattleUI/UnitInfoPanel"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="ResultPanel" type="Panel" parent="BattleUI"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 40.0
+
+[node name="ResultLabel" type="Label" parent="BattleUI/ResultPanel"]
+layout_mode = 0
+offset_right = 40.0
+offset_bottom = 23.0
+
+[node name="RestartButton" type="Button" parent="BattleUI/ResultPanel"]
+layout_mode = 0
+offset_right = 8.0
+offset_bottom = 8.0
 
 [node name="Camera3D" type="Camera3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 10, 10)
