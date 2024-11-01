@@ -1,0 +1,18 @@
+[gd_scene load_steps=3 format=3 uid="uid://dus2f8v06tv1k"]
+
+[ext_resource type="Script" path="res://scripts/test/grid_test.gd" id="1_3qegs"]
+[ext_resource type="Script" path="res://scripts/battle/grid_manager.gd" id="1_ysxlc"]
+
+[node name="GridTest" type="Node3D"]
+script = ExtResource("1_3qegs")
+
+[node name="GridManager" type="Node3D" parent="."]
+script = ExtResource("1_ysxlc")
+grid_size = null
+cell_size = null
+
+[node name="Camera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 10, 10)
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.707107, -0.5, 0.5, 0, 0.707107, 0.707107, -0.707107, -0.5, 0.5, 10, 10, 10)
