@@ -4,22 +4,26 @@ class_name BattleManager
 
 signal battle_ended(is_victory: bool)
 
-var grid_manager: GridManager
-var turn_manager: TurnManager
+@export var grid_manager: GridManager
+@export var turn_manager: TurnManager
 
 func _ready():
-	# ターン終了時に状態をチェック
-	turn_manager.turn_ended.connect(_check_battle_state)
+	if turn_manager:
+		turn_manager.turn_ended.connect(_check_battle_state)
 
 func _check_battle_state():
-	# プレイヤーユニットの全滅チェック
+	print("Checking battle state...")  # デバッグ追加
+	
 	var player_units = turn_manager.active_units[TurnManager.Team.PLAYER]
+	print("Player units: ", player_units.size())  # デバッグ追加
 	if player_units.is_empty():
-		battle_ended.emit(false)  # 敗北
+		print("Game Over - Defeat!")  # デバッグ追加
+		battle_ended.emit(false)
 		return
 		
-	# 敵ユニットの全滅チェック
 	var enemy_units = turn_manager.active_units[TurnManager.Team.ENEMY]
+	print("Enemy units: ", enemy_units.size())  # デバッグ追加
 	if enemy_units.is_empty():
-		battle_ended.emit(true)  # 勝利
+		print("Game Over - Victory!")  # デバッグ追加
+		battle_ended.emit(true)
 		return
