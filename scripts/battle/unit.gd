@@ -55,15 +55,21 @@ func set_selected(selected: bool):
 # 攻撃処理
 func perform_attack(target: Unit) -> bool:
 	if has_attacked or has_acted:
+		print("Attack failed - unit has already acted")  # デバッグ追加
 		return false
 	
 	var damage = calculate_damage(target)
-	target.take_damage(damage)
+	print("Unit %s attacks %s for %d damage" % [
+		"Player" if team == 0 else "Enemy",
+		"Player" if target.team == 0 else "Enemy",
+		damage
+	])  # デバッグ追加
 	
+	target.take_damage(damage)
 	has_attacked = true
-	if not has_moved:  # 移動していない場合は行動を終了
+	if not has_moved:
 		has_acted = true
-		
+	
 	unit_attacked.emit(target, damage)
 	return true
 
@@ -75,12 +81,28 @@ func calculate_damage(target: Unit) -> int:
 
 # ダメージを受ける
 func take_damage(amount: int):
+	var old_hp = current_hp  # デバッグ用
 	current_hp = max(0, current_hp - amount)
+	print("Unit HP changed: %d -> %d" % [old_hp, current_hp])  # デバッグ追加
 	hp_changed.emit(current_hp, max_hp)
 	
 	if current_hp <= 0:
-		unit_defeated.emit()
+		print("Unit defeated!")  # デバッグ追加
+		remove_from_battle()
 		
+func remove_from_battle():
+	print("Removing unit from battle")
+	var grid_manager = get_parent()
+	if grid_manager:
+		grid_manager.remove_unit(self)
+		unit_defeated.emit()
+		# 勝敗判定の追加
+		if grid_manager.turn_manager:
+			# 勝敗判定を実行
+			var game_ended = grid_manager.turn_manager.check_game_end()
+			if game_ended:
+				print("Game has ended!")
+				
 func reset_actions():
 	has_acted = false
 	has_moved = false

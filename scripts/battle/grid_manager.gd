@@ -41,7 +41,13 @@ func _ready():
     # 重要：シグナル接続の確認
     if not turn_manager.turn_changed.is_connected(_on_turn_changed):
         turn_manager.turn_changed.connect(_on_turn_changed)
-
+    # ユニット位置のデバッグ出力
+    print("\n=== Initial Unit Positions ===")
+    for pos in units.keys():
+        var unit = units[pos]
+        print("Unit at position: ", pos, " Team: ", unit.team)
+    print("===========================\n")
+    
 func _initialize_grid():
     for x in range(grid_size.x):
         for y in range(grid_size.y):
@@ -134,17 +140,17 @@ func _finish_current_action():
         turn_manager.end_turn()
 
 func execute_movement(unit: Unit, target_pos: Vector2i):
-    print("Executing movement to: ", target_pos)  # デバッグ追加
+    print("Execute movement - Current range before move: ", movement_range._current_range)
+    print("Target position: ", target_pos)
     if move_unit(unit, target_pos):
+        print("Move successful, current range after move: ", movement_range._current_range)
         unit.has_moved = true
-        movement_range.clear_range_display()
-        
-        # 攻撃範囲の表示（移動後）
+        movement_range.clear_range_display()  # ここに追加
         if not unit.has_attacked:
-            print("Showing attack range after movement")  # デバッグ追加
+            print("Showing attack range")
             attack_range.show_attack_range(unit)
         else:
-            print("Unit has already attacked, ending turn")  # デバッグ追加
+            print("Unit has already attacked, ending turn")
             unit.end_action()
             selected_unit = null
             turn_manager.end_turn()
@@ -162,38 +168,54 @@ func _on_turn_changed(_team: int):
         execute_enemy_turn()
 
 # 敵の行動処理
-# grid_manager.gdのexecute_enemy_turn()を修正
 func execute_enemy_turn():
     print("Execute enemy turn started")
     print("Enemy units: ", turn_manager.active_units[TurnManager.Team.ENEMY].size())
     
     for unit in turn_manager.active_units[TurnManager.Team.ENEMY]:
-        print("Processing enemy unit: ", unit)
         if not unit.has_acted:
             print("Enemy unit acting")
             var target_pos = find_closest_player_unit_position(unit)
+            
             if target_pos != Vector2i(-1, -1):
                 print("Target position found: ", target_pos)
-                # 移動実行
-                var move_pos = calculate_movement_toward_target(unit, target_pos)
-                if move_unit(unit, move_pos):  # 移動が成功した場合のみ
-                    unit.has_moved = true  # 移動フラグを設定
-                    
-                    # 攻撃可能な対象がいるか確認
-                    var attack_cells = attack_range.calculate_attack_range(unit)
-                    for attack_pos in attack_cells:
-                        var possible_target = get_unit_at(attack_pos)
-                        if possible_target and possible_target.team != unit.team:
-                            print("Enemy executing attack")
-                            unit.perform_attack(possible_target)
-                            unit.has_attacked = true
-                            break
                 
-                # 行動終了処理を必ず実行
-                print("Enemy unit finishing action")
-                unit.end_action()
-                movement_range.clear_range_display()
-                attack_range.clear_range_display()
+                # まず現在位置で攻撃可能か確認
+                var attack_cells = attack_range.calculate_attack_range(unit)
+                var can_attack = false
+                var target_unit = null
+                
+                # 攻撃可能な対象を探す
+                for attack_pos in attack_cells:
+                    target_unit = get_unit_at(attack_pos)
+                    if target_unit and target_unit.team == TurnManager.Team.PLAYER:
+                        can_attack = true
+                        print("Found attackable target at current position")
+                        break
+                
+                if can_attack and target_unit:
+                    # 現在位置から攻撃
+                    print("Enemy attacking from current position")
+                    unit.perform_attack(target_unit)
+                else:
+                    # 移動して攻撃を試みる
+                    var move_pos = calculate_movement_toward_target(unit, target_pos)
+                    if move_unit(unit, move_pos):
+                        print("Enemy moved to: ", move_pos)
+                        
+                        # 移動後の攻撃範囲で再確認
+                        attack_cells = attack_range.calculate_attack_range(unit)
+                        for attack_pos in attack_cells:
+                            target_unit = get_unit_at(attack_pos)
+                            if target_unit and target_unit.team == TurnManager.Team.PLAYER:
+                                print("Found attackable target after movement")
+                                unit.perform_attack(target_unit)
+                                break
+            
+            # 行動終了
+            unit.end_action()
+            movement_range.clear_range_display()
+            attack_range.clear_range_display()
     
     print("Enemy turn complete")
     turn_manager.end_turn()
@@ -223,7 +245,7 @@ func calculate_movement_toward_target(unit: Unit, target_pos: Vector2i) -> Vecto
     var best_distance = 999
     
     print("Calculating movement toward: ", target_pos)
-    print("Possible moves: ", possible_moves)
+    print("Possible moves from movement range: ", possible_moves)
     
     for move in possible_moves:
         var distance = calculate_grid_distance(move, target_pos)
@@ -255,16 +277,28 @@ func grid_to_world(grid_pos: Vector2i) -> Vector3:
 
 # ユニット配置メソッド
 func place_unit(unit: Unit, pos: Vector2i) -> bool:
-    if not is_valid_position(pos) or has_unit_at(pos):
+    print("=== Unit Placement Debug ===")
+    print("Attempting to place unit at position: ", pos)
+    
+    if not is_valid_position(pos):
+        print("Position invalid for placement")
+        return false
+        
+    if has_unit_at(pos):
+        print("Position already occupied")
         return false
     
     if units.has(unit):
         var old_pos = units.find_key(unit)
+        print("Unit was previously at position: ", old_pos)
         units.erase(old_pos)
     
     units[pos] = unit
     unit.grid_position = pos
     unit.position = grid_to_world(pos)
+    print("Unit successfully placed at: ", pos)
+    print("Current grid position: ", unit.grid_position)
+    print("Current world position: ", unit.position)
     return true
 
 # 指定位置のユニット取得
@@ -279,8 +313,13 @@ func has_unit_at(pos: Vector2i) -> bool:
 func move_unit(unit: Unit, new_pos: Vector2i) -> bool:
     if not is_valid_position(new_pos) or has_unit_at(new_pos):
         return false
-    
+    # 古い位置を保存
     var old_pos = unit.grid_position
+    # 古い位置のユニット情報を明示的に削除
+    if units.has(old_pos):
+        print("Clearing old position: ", old_pos)  # デバッグ用
+        units.erase(old_pos)
+    # 新しい位置にユニットを配置
     if place_unit(unit, new_pos):
         unit.unit_moved.emit(old_pos, new_pos)
         return true
@@ -322,6 +361,7 @@ func _select_cell(grid_pos: Vector2i):
         selected_unit = unit
         if not unit.has_moved:
             var movement_cells = movement_range.calculate_movement_range(unit)
+            print("Calculated movement range: ", movement_cells)  # 追加
             movement_range.show_movement_range(unit)
             attack_range.show_attack_range(unit, movement_cells)
         elif not unit.has_attacked:
@@ -330,3 +370,23 @@ func _select_cell(grid_pos: Vector2i):
     selected_cell_indicator.visible = true
     selected_cell_indicator.position = grid_to_world(grid_pos)
     cell_selected.emit(grid_pos)
+
+func remove_unit(unit: Unit):
+    print("Removing unit at position: ", unit.grid_position)
+    
+    # ユニットの位置情報をクリア
+    var pos = unit.grid_position
+    if units.has(pos):
+        units.erase(pos)
+    
+    # 選択中のユニットだった場合、選択を解除
+    if selected_unit == unit:
+        selected_unit = null
+        movement_range.clear_range_display()
+        attack_range.clear_range_display()
+    
+    # ターンマネージャーからユニットを削除
+    turn_manager.remove_unit(unit)
+    
+    # 実際のユニットを削除
+    unit.queue_free()
