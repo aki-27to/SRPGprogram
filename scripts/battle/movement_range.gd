@@ -29,22 +29,25 @@ func create_range_indicator() -> MeshInstance3D:
 
 # 移動可能範囲を計算して表示
 func show_movement_range(unit: Unit):
-    # 不要なログを削除し、重要な情報を明確に表示
     print("=== Movement Range Display Start ===")
     print("Current unit position: ", unit.grid_position)
     clear_range_display()
     _current_range = calculate_movement_range(unit)
     print("All reachable positions: ", _current_range)
     
+    # 移動可能範囲の表示（敵ユニットの位置は除外しない）
     for cell_pos in _current_range:
+        # 敵ユニットがいる場合は表示をスキップ（attack_rangeで表示する）
+        var target_unit = _grid_manager.get_unit_at(cell_pos)
+        if target_unit and target_unit.team != unit.team:
+            continue
+            
         var indicator = create_range_indicator()
         var world_pos = _grid_manager.grid_to_world(cell_pos)
         world_pos.y = 0.1
         indicator.position = world_pos
         add_child(indicator)
         _range_indicators[cell_pos] = indicator
-    
-    print("=== Movement Range Display End ===")
 
 # 移動可能範囲を計算
 func calculate_movement_range(unit: Unit) -> Array[Vector2i]:
@@ -93,7 +96,6 @@ func calculate_movement_range(unit: Unit) -> Array[Vector2i]:
 
 # 移動先の有効性チェック
 func _is_valid_movement_destination(pos: Vector2i) -> bool:
-    
     if not _grid_manager.is_valid_position(pos):
         print("Position invalid - out of grid")
         return false
@@ -103,10 +105,12 @@ func _is_valid_movement_destination(pos: Vector2i) -> bool:
         print("Position valid - current position")
         return true
 
-    if _grid_manager.has_unit_at(pos):
-        print("Position invalid - has unit at: ", pos)
+    # 味方ユニットがいる場所には移動できない
+    var target_unit = _grid_manager.get_unit_at(pos)
+    if target_unit and target_unit.team == _current_unit.team:
+        print("Position invalid - friendly unit at: ", pos)
         return false
-        
+            
     print("Position valid for movement")
     return true
 

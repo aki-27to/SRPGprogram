@@ -64,18 +64,27 @@ func is_player_turn() -> bool:
 	return current_team == Team.PLAYER
 
 func check_game_end() -> bool:
+	# プレイヤーユニットが全滅した場合
 	if active_units[Team.PLAYER].is_empty():
-		print("Game Over - Player Defeated!")
-		game_ended.emit(false)
+		print("Game Over - Enemy Wins!")
 		return true
-	
+		
+	# 敵ユニットが全滅した場合
 	if active_units[Team.ENEMY].is_empty():
-		print("Victory - All Enemies Defeated!")
-		game_ended.emit(true)
+		print("Game Over - Player Wins!")
 		return true
-	
-	return false
-	
+		
+	return false  # ゲーム継続中
+
+func get_winner() -> int:
+	if active_units[Team.PLAYER].is_empty():
+		return Team.ENEMY
+	if active_units[Team.ENEMY].is_empty():
+		return Team.PLAYER
+	return -1
+
+
+
 # ゲーム終了時にターンを停止する処理を追加
 func end_game():
 	# ゲーム終了時の処理をここに追加

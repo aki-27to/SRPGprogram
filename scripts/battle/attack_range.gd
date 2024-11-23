@@ -26,28 +26,30 @@ func create_range_indicator(is_attack: bool = false) -> MeshInstance3D:
 	return indicator
 
 # movement_cellsパラメータを追加
+# movement_cellsパラメータを追加
 func show_attack_range(unit: Unit, movement_cells: Array = []):
 	clear_range_display()
 	var attack_cells = calculate_attack_range(unit)
 	
-	for cell_pos in attack_cells:
-		# 敵ユニットのチェックを追加
-		var target_unit = _grid_manager.get_unit_at(cell_pos)
-		var has_enemy = target_unit != null and target_unit.team != unit.team
-		var is_in_movement = cell_pos in movement_cells
-		
-		# 移動可能範囲内の敵ユニット位置は赤で表示（優先）
-		if is_in_movement and has_enemy:
-			var indicator = create_range_indicator(true)  # 赤色
-			indicator.position = _grid_manager.grid_to_world(cell_pos)
-			add_child(indicator)
-			_range_indicators[cell_pos] = indicator
-		# 移動後の攻撃範囲表示
-		elif len(movement_cells) == 0:
-			var indicator = create_range_indicator(true)  # 赤色
-			indicator.position = _grid_manager.grid_to_world(cell_pos)
-			add_child(indicator)
-			_range_indicators[cell_pos] = indicator
+	# まず移動可能範囲内の敵ユニットをチェック
+	if not movement_cells.is_empty():
+		for cell_pos in movement_cells:
+			var target_unit = _grid_manager.get_unit_at(cell_pos)
+			if target_unit and target_unit.team != unit.team:
+				# 敵ユニットの位置を赤で表示
+				var indicator = create_range_indicator(true)  # 赤色
+				indicator.position = _grid_manager.grid_to_world(cell_pos)
+				add_child(indicator)
+				_range_indicators[cell_pos] = indicator
+
+	# 通常の攻撃範囲表示（移動後の攻撃範囲）
+	if movement_cells.is_empty():
+		for cell_pos in attack_cells:
+			if not (cell_pos in _range_indicators):
+				var indicator = create_range_indicator(true)
+				indicator.position = _grid_manager.grid_to_world(cell_pos)
+				add_child(indicator)
+				_range_indicators[cell_pos] = indicator
 
 # 既存の関数はそのまま
 func calculate_attack_range(unit: Unit) -> Array:

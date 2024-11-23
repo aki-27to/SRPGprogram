@@ -12,6 +12,8 @@ script = ExtResource("1_3qegs")
 
 [node name="GridManager" type="Node3D" parent="."]
 script = ExtResource("1_ysxlc")
+grid_size = null
+cell_size = null
 
 [node name="BattleUI" type="Control" parent="."]
 layout_mode = 3
