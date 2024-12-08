@@ -14,7 +14,9 @@ signal turn_changed(team: int)
 @export var cell_size: float = 1.0
 
 enum Team { PLAYER = 0, ENEMY = 1 }
+enum ActionType { ATTACK, MAGIC, WAIT }
 
+# --- フィールド変数 ---
 var attack_range: AttackRange
 var movement_range: MovementRange  
 var turn_manager: TurnManager
@@ -26,19 +28,19 @@ var active_units: Dictionary = {
 var grid_data: Dictionary = {}
 var visualization_node: Node3D
 var selected_cell_indicator: MeshInstance3D = null
-# ユニット管理用の変数を追加
+
+# ユニット関連
 var units: Dictionary = {}  # キー: Vector2i（位置）, 値: Unit
 var selected_unit: Unit = null
+
+# 状態フラグ
 var waiting_for_turn_end: bool = false
-# 選択可能なアクションのタイプを追加
-enum ActionType { ATTACK, MAGIC, WAIT }
-# 選択中のアクションを保存する変数
 var selected_action: ActionType = ActionType.ATTACK
-# 待機中かどうかを判定するフラグを追加
 var waiting_for_direction: bool = false
-# 状態を保存するための変数
+var is_in_action: bool = false
+
+# 状態保存用
 var previous_state: Dictionary = {}
-var is_in_action: bool = false # プレイヤーがアクション中かどうかを判断する
 var selected_unit_previous_position: Vector2i = Vector2i(-1, -1)
 var has_moved_previous_state: bool = false
 var has_attacked_previous_state: bool = false
@@ -48,28 +50,28 @@ func _ready():
     _initialize_grid()
     _create_visualization()
     _create_selection_indicator()
-    
-    # 移動範囲システムの初期化
+
     movement_range = MovementRangeClass.new(self)
     add_child(movement_range)
-    
-    # 攻撃範囲システムの初期化
+
     attack_range = AttackRange.new(self)
     add_child(attack_range)
-    
-    # ターン管理システムの初期化
+
     turn_manager = TurnManager.new()
     add_child(turn_manager)
-    # 重要：シグナル接続の確認
+    _connect_turn_signals()
+
+    # 初期UI設定
+    battle_ui.hide_action_buttons()
+    battle_ui.connect_action_buttons(self)
+
+func _connect_turn_signals():
     if not turn_manager.turn_changed.is_connected(_on_turn_changed):
         turn_manager.turn_changed.connect(_on_turn_changed)
-    # ユニット位置のデバッグ出力
-    for pos in units.keys():
-        var unit = units[pos]
-    # 行動選択ボタンの表示を制御
-    battle_ui.hide_action_buttons()
-    # 各ボタンが押されたときの処理を追加
-    battle_ui.connect_action_buttons(self)	
+
+#==================================================
+# 初期化系
+#==================================================
 func _initialize_grid():
     for x in range(grid_size.x):
         for y in range(grid_size.y):
@@ -89,20 +91,22 @@ func _create_visualization():
     
     for x in range(grid_size.x):
         for y in range(grid_size.y):
-            var static_body = StaticBody3D.new()  # 物理ボディを追加
-            var collision_shape = CollisionShape3D.new()
-            var box_shape = BoxShape3D.new()
-            box_shape.size = Vector3(cell_size * 0.9, 0.1, cell_size * 0.9)
-            collision_shape.shape = box_shape
-            
-            var mesh_instance = MeshInstance3D.new()
-            mesh_instance.mesh = mesh
-            
-            static_body.add_child(collision_shape)
-            static_body.add_child(mesh_instance)
-            static_body.position = grid_to_world(Vector2i(x, y))
-            
-            visualization_node.add_child(static_body)
+            _create_single_cell_visual(x, y, mesh)
+
+func _create_single_cell_visual(x: int, y: int, mesh: BoxMesh):
+    var static_body = StaticBody3D.new()
+    var collision_shape = CollisionShape3D.new()
+    var box_shape = BoxShape3D.new()
+    box_shape.size = Vector3(cell_size * 0.9, 0.1, cell_size * 0.9)
+    collision_shape.shape = box_shape
+    
+    var mesh_instance = MeshInstance3D.new()
+    mesh_instance.mesh = mesh
+    
+    static_body.add_child(collision_shape)
+    static_body.add_child(mesh_instance)
+    static_body.position = grid_to_world(Vector2i(x, y))
+    visualization_node.add_child(static_body)
 
 func _create_selection_indicator():
     var material = StandardMaterial3D.new()
@@ -118,59 +122,91 @@ func _create_selection_indicator():
     selected_cell_indicator.visible = false
     add_child(selected_cell_indicator)
 
-# grid_manager.gd内の_input関数を修正
-
+#==================================================
+# 入力処理
+#==================================================
 func _input(event):
-    # プレイヤーターンでない場合は早期リターン
     if not turn_manager.is_player_turn():
         return
-    # 待機中で、かつ選択中のユニットがいる場合、方向入力を受け付ける
-    if waiting_for_direction and selected_unit:
-        if event is InputEventKey and event.pressed:
-            if event.keycode == KEY_UP:
+    
+    if _handle_waiting_direction_input(event):
+        return
+    
+    if _handle_key_z_input(event):
+        return
+
+    if _handle_key_space_input(event):
+        return
+
+    if _handle_mouse_left_click(event):
+        return
+
+func _handle_waiting_direction_input(event) -> bool:
+    if waiting_for_direction and selected_unit and event is InputEventKey and event.pressed:
+        match event.keycode:
+            KEY_UP:
                 selected_unit.set_direction(Vector2i.UP)
-            elif event.keycode == KEY_DOWN:
+            KEY_DOWN:
                 selected_unit.set_direction(Vector2i.DOWN)
-            elif event.keycode == KEY_LEFT:
-                selected_unit.set_direction(Vector2i.RIGHT) 
-            elif event.keycode == KEY_RIGHT:
-                selected_unit.set_direction(Vector2i.LEFT) 
-            elif event.keycode == KEY_SPACE:
+            KEY_LEFT:
+                selected_unit.set_direction(Vector2i.RIGHT)
+            KEY_RIGHT:
+                selected_unit.set_direction(Vector2i.LEFT)
+            KEY_SPACE:
                 _finish_current_action()
-                return
-            elif event.keycode == KEY_Z:  # Zキーで待機をキャンセル
+                return true
+            KEY_Z:
                 waiting_for_direction = false
                 battle_ui.show_action_buttons()
-                return	
-    # Z キーで戻る機能を実行
+                return true
+    return false
+
+func _handle_key_z_input(event) -> bool:
     if event is InputEventKey and event.pressed and event.keycode == KEY_Z:
         if is_in_action:
+            # 状態復元
             restore_state()
             is_in_action = false
-            if selected_unit:
-                if not selected_unit.has_moved:
-                    # ユニットが移動前なら、移動範囲と攻撃範囲を再表示
-                    var movement_cells = movement_range.calculate_movement_range(selected_unit)
-                    movement_range.show_movement_range(selected_unit)
-                    attack_range.show_attack_range(selected_unit, movement_cells)
-                elif not selected_unit.has_attacked:
-                    # ユニットが攻撃前なら、攻撃範囲を再表示
-                    attack_range.show_attack_range(selected_unit)
-            return
+
+            # 状態復元後に攻撃選択中であれば攻撃範囲をクリア
+            if selected_action == ActionType.ATTACK:
+                cancel_attack() # 攻撃範囲非表示と3択表示を行う
+            else:
+                # 攻撃中でない場合は本来の再表示処理
+                _redisplay_ranges_after_restore()
+            return true
+
         elif selected_unit:
+            # selected_unitがいるがis_in_actionでない場合
+            # 通常のキャンセル処理
             if selected_action == ActionType.ATTACK:
                 cancel_attack()
+                return true
             elif selected_unit.has_moved:
                 cancel_movement()
-            
-    # スペースキーの処理: 選択中のユニットがいる場合、待機アクションを実行
+                return true
+    return false
+
+func _redisplay_ranges_after_restore():
+    if selected_unit:
+        if not selected_unit.has_moved:
+            var movement_cells = movement_range.calculate_movement_range(selected_unit)
+            movement_range.show_movement_range(selected_unit)
+            attack_range.show_attack_range(selected_unit, movement_cells)
+        elif not selected_unit.has_attacked:
+            attack_range.show_attack_range(selected_unit)
+
+func _handle_key_space_input(event) -> bool:
     if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
         if waiting_for_turn_end:
             _finish_turn()
+            return true
         elif selected_unit:
             select_action(ActionType.WAIT)
-            return
+            return true
+    return false
 
+func _handle_mouse_left_click(event) -> bool:
     if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
         var camera = get_viewport().get_camera_3d()
         if camera:
@@ -183,165 +219,150 @@ func _input(event):
                 var grid_pos = world_to_grid(result.position)
                 if is_valid_position(grid_pos):
                     _select_cell(grid_pos)
-                    
-    if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
-        if waiting_for_turn_end:
-            _finish_turn()
-        elif selected_unit:
-            _finish_current_action()
-            return
+                    return true
+    return false
 
-    if event is InputEventMouseButton and event.pressed and event.button_index == MOUSE_BUTTON_LEFT:
-        var camera = get_viewport().get_camera_3d()
-        if camera:
-            var from = camera.project_ray_origin(event.position)
-            var to = from + camera.project_ray_normal(event.position) * 1000.0
-            var space_state = get_world_3d().direct_space_state
-            var query = PhysicsRayQueryParameters3D.create(from, to)
-            var result = space_state.intersect_ray(query)
-            if result:
-                var grid_pos = world_to_grid(result.position)
-                if is_valid_position(grid_pos):
-                    _select_cell(grid_pos)
-
+#==================================================
+# ターン終了処理
+#==================================================
 func _finish_turn():
     waiting_for_turn_end = false
     battle_ui.hide_turn_end_button()
     turn_manager.end_turn()
 
-# 行動終了処理を追加
+#==================================================
+# 行動終了処理
+#==================================================
 func _finish_current_action():
-    if selected_unit:
-        if waiting_for_direction: # 待機コマンドによる行動終了の場合
-            waiting_for_direction = false
-            selected_unit.end_action()
-            selected_unit = null
-            movement_range.clear_range_display()
-            attack_range.clear_range_display()
-            waiting_for_turn_end = true
-            battle_ui.show_turn_end_button()
-        else: # 通常の行動終了の場合
-            selected_unit.end_action()
-            selected_unit = null
-            movement_range.clear_range_display()
-            attack_range.clear_range_display()
-            waiting_for_turn_end = true
-            battle_ui.show_turn_end_button()
-            battle_ui.hide_action_buttons() 
-            
+    if not selected_unit:
+        return
+
+    if waiting_for_direction:
+        _finish_wait_action()
+    else:
+        _finish_generic_action()
+
+func _finish_wait_action():
+    waiting_for_direction = false
+    selected_unit.end_action()
+    selected_unit = null
+    _clear_ranges()
+    waiting_for_turn_end = true
+    battle_ui.show_turn_end_button()
+
+func _finish_generic_action():
+    selected_unit.end_action()
+    selected_unit = null
+    _clear_ranges()
+    waiting_for_turn_end = true
+    battle_ui.show_turn_end_button()
+    battle_ui.hide_action_buttons()
+
+func _clear_ranges():
+    movement_range.clear_range_display()
+    attack_range.clear_range_display()
+
+#==================================================
+# ユニット移動・アクション選択
+#==================================================
 func execute_movement(unit: Unit, target_pos: Vector2i):
     if await move_unit(unit, target_pos):
-        
-        # 移動前の状態を保存
-        is_in_action = true
-        selected_unit_previous_position = unit.grid_position
-        has_moved_previous_state = unit.has_moved
-        has_attacked_previous_state = unit.has_attacked
-        has_acted_previous_state = unit.has_acted
-        
+        _store_pre_movement_state(unit)
         unit.has_moved = true
-        movement_range.clear_range_display()
+        _clear_ranges()
         battle_ui.show_unit_info(unit)
         
-        # 移動後にアクションボタンを表示
         if not unit.has_attacked:
             battle_ui.show_action_buttons()
             selected_action = ActionType.ATTACK
         else:
-            unit.end_action()
-            selected_unit = null
-            battle_ui.hide_unit_info()
-            turn_manager.end_turn()
-            battle_ui.hide_action_buttons()
+            _auto_end_turn_after_movement()
 
-# UI からの選択を処理する関数を追加
+func _store_pre_movement_state(unit: Unit):
+    is_in_action = true
+    selected_unit_previous_position = unit.grid_position
+    has_moved_previous_state = unit.has_moved
+    has_attacked_previous_state = unit.has_attacked
+    has_acted_previous_state = unit.has_acted
+
+func _auto_end_turn_after_movement():
+    selected_unit.end_action()
+    selected_unit = null
+    battle_ui.hide_unit_info()
+    turn_manager.end_turn()
+    battle_ui.hide_action_buttons()
+
 func select_action(action_type: ActionType):
     selected_action = action_type
-    #攻撃選択時
-    if selected_action == ActionType.ATTACK:
-        # 攻撃前の状態を保存
-        is_in_action = true
-        save_state()
-        battle_ui.hide_action_buttons() # 攻撃ボタン押下時にUIを非表示にする
-        # 攻撃範囲表示
-        if selected_unit:
-            attack_range.show_attack_range(selected_unit)
-    elif selected_action == ActionType.MAGIC:
-        # 仮の処理: 魔法を選択したら行動終了
-        _finish_current_action()
-    elif action_type == ActionType.WAIT:
-        # 待機前の状態を保存
-        is_in_action = true
-        save_state()
-        # 待機処理
-        battle_ui.hide_action_buttons()
-        waiting_for_direction = true  # 向き選択モードを有効化
+    is_in_action = true
+    save_state()
 
-# ターン管理関連の処理を追加
+    match selected_action:
+        ActionType.ATTACK:
+            battle_ui.hide_action_buttons()
+            if selected_unit:
+                attack_range.show_attack_range(selected_unit)
+        ActionType.MAGIC:
+            _finish_current_action()
+        ActionType.WAIT:
+            battle_ui.hide_action_buttons()
+            waiting_for_direction = true  # 向き選択モード
+
+#==================================================
+# ターン変更処理
+#==================================================
 func _on_turn_changed(_team: int):
     selected_unit = null
-    movement_range.clear_range_display()
-    # UIをリセット
+    _clear_ranges()
     battle_ui.hide_action_buttons()
-    # 敵のターンになったら自動で行動を実行
     if not turn_manager.is_player_turn():
         execute_enemy_turn()
 
-# 敵の行動処理
+#==================================================
+# 敵ターン・AI関連
+#==================================================
 func execute_enemy_turn():
     print("Execute enemy turn started")
     print("Enemy units: ", turn_manager.active_units[TurnManager.Team.ENEMY].size())
     
     for unit in turn_manager.active_units[TurnManager.Team.ENEMY]:
         if not unit.has_acted:
-            print("Enemy unit acting")
-            var target_pos = find_closest_player_unit_position(unit)
-            
-            if target_pos != Vector2i(-1, -1):
-                print("Target position found: ", target_pos)
-                
-                # まず現在位置で攻撃可能か確認
-                var attack_cells = attack_range.calculate_attack_range(unit)
-                var can_attack = false
-                var target_unit = null
-                
-                # 攻撃可能な対象を探す
-                for attack_pos in attack_cells:
-                    target_unit = get_unit_at(attack_pos)
-                    if target_unit and target_unit.team == TurnManager.Team.PLAYER:
-                        can_attack = true
-                        print("Found attackable target at current position")
-                        break
-                
-                if can_attack and target_unit:
-                    # 現在位置から攻撃
-                    print("Enemy attacking from current position")
-                    unit.perform_attack(target_unit)
-                else:
-                    # 移動して攻撃を試みる
-                    var move_pos = calculate_movement_toward_target(unit, target_pos)
-                    # awaitキーワードを追加
-                    if await move_unit(unit, move_pos):
-                        print("Enemy moved to: ", move_pos)
-                        
-                        # 移動後の攻撃範囲で再確認
-                        attack_cells = attack_range.calculate_attack_range(unit)
-                        for attack_pos in attack_cells:
-                            target_unit = get_unit_at(attack_pos)
-                            if target_unit and target_unit.team == TurnManager.Team.PLAYER:
-                                print("Found attackable target after movement")
-                                unit.perform_attack(target_unit)
-                                break
-            
-            # 行動終了
-            unit.end_action()
-            movement_range.clear_range_display()
-            attack_range.clear_range_display()
-            battle_ui.hide_action_buttons()	
+            _enemy_act(unit)
     print("Enemy turn complete")
     turn_manager.end_turn()
 
-# 最も近いプレイヤーユニットの位置を見つける
+func _enemy_act(enemy_unit: Unit):
+    print("Enemy unit acting")
+    var target_pos = find_closest_player_unit_position(enemy_unit)
+    if target_pos != Vector2i(-1, -1):
+        _enemy_try_attack_or_move(enemy_unit, target_pos)
+    enemy_unit.end_action()
+    _clear_ranges()
+    battle_ui.hide_action_buttons()
+
+func _enemy_try_attack_or_move(enemy_unit: Unit, target_pos: Vector2i):
+    var attack_cells = attack_range.calculate_attack_range(enemy_unit)
+    var can_attack = false
+    var target_unit = null
+    for attack_pos in attack_cells:
+        target_unit = get_unit_at(attack_pos)
+        if target_unit and target_unit.team == TurnManager.Team.PLAYER:
+            can_attack = true
+            break
+    
+    if can_attack and target_unit:
+        enemy_unit.perform_attack(target_unit)
+    else:
+        # 移動して攻撃
+        var move_pos = calculate_movement_toward_target(enemy_unit, target_pos)
+        if await move_unit(enemy_unit, move_pos):
+            attack_cells = attack_range.calculate_attack_range(enemy_unit)
+            for attack_pos in attack_cells:
+                target_unit = get_unit_at(attack_pos)
+                if target_unit and target_unit.team == TurnManager.Team.PLAYER:
+                    enemy_unit.perform_attack(target_unit)
+                    break
+
 func find_closest_player_unit_position(enemy_unit: Unit) -> Vector2i:
     var closest_distance = 999
     var closest_pos = Vector2i(-1, -1)
@@ -352,14 +373,14 @@ func find_closest_player_unit_position(enemy_unit: Unit) -> Vector2i:
             closest_distance = distance
             closest_pos = unit.grid_position
             print("Found player unit at: ", closest_pos, " distance: ", closest_distance)
-    
     return closest_pos
 
-# グリッド上の2点間の距離を計算
+#==================================================
+# Utility系(計算系)
+#==================================================
 func calculate_grid_distance(from: Vector2i, to: Vector2i) -> int:
     return abs(from.x - to.x) + abs(from.y - to.y)
 
-# ターゲットに向かう移動位置を計算
 func calculate_movement_toward_target(unit: Unit, target_pos: Vector2i) -> Vector2i:
     var possible_moves = movement_range.calculate_movement_range(unit)
     var best_move = unit.grid_position
@@ -374,147 +395,13 @@ func calculate_movement_toward_target(unit: Unit, target_pos: Vector2i) -> Vecto
             best_distance = distance
             best_move = move
             print("Found better move: ", best_move, " distance: ", best_distance)
-    
     return best_move
 
-func is_valid_position(pos: Vector2i) -> bool:
-    return pos.x >= 0 and pos.x < grid_size.x and pos.y >= 0 and pos.y < grid_size.y
-
-func get_cell_data(pos: Vector2i) -> CellData:
-    return grid_data.get(pos)
-
-func world_to_grid(world_pos: Vector3) -> Vector2i:
-    return Vector2i(
-        int(world_pos.x / cell_size),
-        int(world_pos.z / cell_size)
-    )
-
-func grid_to_world(grid_pos: Vector2i) -> Vector3:
-    return Vector3(
-        grid_pos.x * cell_size,
-        0,
-        grid_pos.y * cell_size
-    )
-
-# ユニット配置メソッド
-func place_unit(unit: Unit, pos: Vector2i) -> bool:
-    if not is_valid_position(pos):
-        return false
-        
-    if has_unit_at(pos):
-        return false
-    
-    if units.has(unit):
-        var old_pos = units.find_key(unit)
-        units.erase(old_pos)
-    
-    units[pos] = unit
-    unit.grid_position = pos
-    unit.position = grid_to_world(pos)
-    return true
-
-# 指定位置のユニット取得
-func get_unit_at(pos: Vector2i) -> Unit:
-    return units.get(pos)
-
-# 指定位置にユニットが存在するか確認
-func has_unit_at(pos: Vector2i) -> bool:
-    return units.has(pos)
-
-# ユニットの移動
-func move_unit(unit: Unit, new_pos: Vector2i) -> bool:
-    if not is_valid_position(new_pos) or has_unit_at(new_pos):
-        return false
-    
-    var old_pos = unit.grid_position
-    units.erase(old_pos)
-    
-    # 新しい移動関数を使用
-    await unit.move_to_grid(new_pos)
-    
-    if place_unit(unit, new_pos):
-        unit.unit_moved.emit(old_pos, new_pos)
-        return true
-    
-    return false
-    
-# ユニット選択処理を更新
-# grid_manager.gd の _select_cell 関数を修正
-# _select_cell 関数を修正
-func _select_cell(grid_pos: Vector2i):
-    
-    if not is_valid_position(grid_pos):
-        battle_ui.hide_unit_info()
-        return
-        
-    if not turn_manager.is_player_turn():
-        return
-
-    var target_unit = get_unit_at(grid_pos)
-    
-    # UI更新
-    if target_unit:
-        battle_ui.show_unit_info(target_unit)
-    else:
-        battle_ui.hide_unit_info()
-    
-    # 選択中のユニットがある場合の処理
-    if selected_unit:
-        
-        # 攻撃可能な敵ユニット
-        if target_unit and target_unit.team != selected_unit.team and attack_range.is_in_attack_range(grid_pos):
-            # 近接攻撃の場合、まず移動
-            if grid_pos in movement_range._current_range:
-                # 最適な攻撃位置を計算
-                var attack_pos = calculate_attack_position(selected_unit, grid_pos)
-                if attack_pos != selected_unit.grid_position:
-                    # 移動してから攻撃
-                    await execute_movement(selected_unit, attack_pos)
-            
-            # 行動選択が攻撃なら攻撃実行
-            if selected_action == ActionType.ATTACK:
-                is_in_action = false
-                selected_unit.perform_attack(target_unit)
-                selected_unit.has_attacked = true
-                attack_range.clear_range_display()
-                selected_unit.end_action()
-                selected_unit = null
-                battle_ui.hide_unit_info()
-                waiting_for_turn_end = true
-                battle_ui.show_turn_end_button()
-                battle_ui.hide_action_buttons()
-                return
-            
-        # 移動可能なセル
-        if movement_range.is_cell_in_range(grid_pos):
-            is_in_action = true
-            # 状態を保存
-            save_state()
-            execute_movement(selected_unit, grid_pos)
-            return
-
-    # 新しいユニットの選択処理を追加
-    if target_unit and target_unit.team == 0 and not target_unit.has_acted:
-        selected_unit = target_unit
-        is_in_action = false
-        if not target_unit.has_moved:
-            var movement_cells = movement_range.calculate_movement_range(target_unit)
-            movement_range.show_movement_range(target_unit)
-            attack_range.show_attack_range(target_unit, movement_cells)
-        elif not target_unit.has_attacked:
-            attack_range.show_attack_range(target_unit)
-    
-    selected_cell_indicator.visible = true
-    selected_cell_indicator.position = grid_to_world(grid_pos)
-    cell_selected.emit(grid_pos)
-    
-# grid_manager.gd に追加
 func calculate_attack_position(attacker: Unit, target_pos: Vector2i) -> Vector2i:
     var target_unit = get_unit_at(target_pos)
     if not target_unit:
         return attacker.grid_position
         
-    # 攻撃対象の周囲のセルをチェック
     var possible_positions = []
     var directions = [Vector2i.UP, Vector2i.RIGHT, Vector2i.DOWN, Vector2i.LEFT]
     
@@ -523,7 +410,6 @@ func calculate_attack_position(attacker: Unit, target_pos: Vector2i) -> Vector2i
         if is_valid_position(pos) and pos in movement_range._current_range:
             possible_positions.append(pos)
     
-    # 最も近い位置を選択
     var best_pos = attacker.grid_position
     var best_distance = 999
     
@@ -532,12 +418,133 @@ func calculate_attack_position(attacker: Unit, target_pos: Vector2i) -> Vector2i
         if distance < best_distance:
             best_distance = distance
             best_pos = pos
-            
     return best_pos
 
+#==================================================
+# グリッド・ユニット管理系
+#==================================================
+func is_valid_position(pos: Vector2i) -> bool:
+    return pos.x >= 0 and pos.x < grid_size.x and pos.y >= 0 and pos.y < grid_size.y
 
-# 状態を保存する関数
-# 修正後のsave_state関数
+func get_cell_data(pos: Vector2i) -> CellData:
+    return grid_data.get(pos)
+
+func world_to_grid(world_pos: Vector3) -> Vector2i:
+    return Vector2i(int(world_pos.x / cell_size), int(world_pos.z / cell_size))
+
+func grid_to_world(grid_pos: Vector2i) -> Vector3:
+    return Vector3(grid_pos.x * cell_size, 0, grid_pos.y * cell_size)
+
+func place_unit(unit: Unit, pos: Vector2i) -> bool:
+    if not is_valid_position(pos) or has_unit_at(pos):
+        return false
+    _remove_unit_from_old_pos_if_needed(unit)
+    units[pos] = unit
+    unit.grid_position = pos
+    unit.position = grid_to_world(pos)
+    return true
+
+func _remove_unit_from_old_pos_if_needed(unit: Unit):
+    if units.has(unit):
+        var old_pos = units.find_key(unit)
+        units.erase(old_pos)
+
+func get_unit_at(pos: Vector2i) -> Unit:
+    return units.get(pos)
+
+func has_unit_at(pos: Vector2i) -> bool:
+    return units.has(pos)
+
+func move_unit(unit: Unit, new_pos: Vector2i) -> bool:
+    if not is_valid_position(new_pos) or has_unit_at(new_pos):
+        return false
+    
+    var old_pos = unit.grid_position
+    units.erase(old_pos)
+    
+    await unit.move_to_grid(new_pos)
+    
+    if place_unit(unit, new_pos):
+        unit.unit_moved.emit(old_pos, new_pos)
+        return true
+    return false
+
+#==================================================
+# セル選択・行動処理
+#==================================================
+func _select_cell(grid_pos: Vector2i):
+    if not is_valid_position(grid_pos) or not turn_manager.is_player_turn():
+        battle_ui.hide_unit_info()
+        return
+
+    var target_unit = get_unit_at(grid_pos)
+    _update_ui_for_target_unit(target_unit)
+
+    if selected_unit:
+        if await _attempt_attack_if_possible(target_unit, grid_pos):
+            return
+        if _attempt_move_if_in_range(grid_pos):
+            return
+
+    if target_unit and target_unit.team == Team.PLAYER and not target_unit.has_acted:
+        _select_new_unit(target_unit)
+
+    selected_cell_indicator.visible = true
+    selected_cell_indicator.position = grid_to_world(grid_pos)
+    cell_selected.emit(grid_pos)
+
+func _update_ui_for_target_unit(target_unit: Unit):
+    if target_unit:
+        battle_ui.show_unit_info(target_unit)
+    else:
+        battle_ui.hide_unit_info()
+
+func _attempt_attack_if_possible(target_unit: Unit, grid_pos: Vector2i) -> bool:
+    if selected_unit and target_unit and target_unit.team != selected_unit.team and attack_range.is_in_attack_range(grid_pos):
+        # 近接攻撃用に移動
+        if grid_pos in movement_range._current_range:
+            var attack_pos = calculate_attack_position(selected_unit, grid_pos)
+            if attack_pos != selected_unit.grid_position:
+                await execute_movement(selected_unit, attack_pos)
+        
+        if selected_action == ActionType.ATTACK:
+            _execute_attack(target_unit)
+            return true
+    return false
+
+func _execute_attack(target_unit: Unit):
+    is_in_action = false
+    selected_unit.perform_attack(target_unit)
+    selected_unit.has_attacked = true
+    _clear_ranges()
+    selected_unit.end_action()
+    selected_unit = null
+    battle_ui.hide_unit_info()
+    waiting_for_turn_end = true
+    battle_ui.show_turn_end_button()
+    battle_ui.hide_action_buttons()
+
+func _attempt_move_if_in_range(grid_pos: Vector2i) -> bool:
+    if selected_unit and movement_range.is_cell_in_range(grid_pos):
+        is_in_action = true
+        save_state()
+        execute_movement(selected_unit, grid_pos)
+        return true
+    return false
+
+func _select_new_unit(target_unit: Unit):
+    selected_unit = target_unit
+    is_in_action = false
+    if not target_unit.has_moved:
+        var movement_cells = movement_range.calculate_movement_range(target_unit)
+        movement_range.show_movement_range(target_unit)
+        attack_range.show_attack_range(target_unit, movement_cells)
+    elif not target_unit.has_attacked:
+        attack_range.show_attack_range(target_unit)
+
+#==================================================
+# 状態保存・復元系
+#==================================================
 func save_state():
     previous_state = {
         "selected_unit": selected_unit,
@@ -550,30 +557,18 @@ func save_state():
         "selected_action": selected_action,
         "action_buttons_visible": battle_ui.are_action_buttons_visible()
     }
-    
-# 状態を復元する関数
+
 func restore_state():
     if previous_state.is_empty():
         return
-    
-    # ユニットの状態を復元
-    if previous_state.selected_unit:
-        selected_unit = previous_state.selected_unit
-        selected_unit.has_moved = previous_state.has_moved
-        selected_unit.has_attacked = previous_state.has_attacked
-        selected_unit.has_acted = previous_state.has_acted
-        
-        # ユニットの位置を復元
-        if previous_state.selected_unit_position:
-            selected_unit.position = grid_to_world(previous_state.selected_unit_position)
-            selected_unit.grid_position = previous_state.selected_unit_position
-            units[selected_unit.grid_position] = selected_unit
 
+    if previous_state.selected_unit:
+        _restore_selected_unit_state()
+    
     waiting_for_direction = previous_state.waiting_for_direction
     waiting_for_turn_end = previous_state.waiting_for_turn_end
     selected_action = previous_state.selected_action
 
-    # UIの状態を復元
     if previous_state.action_buttons_visible:
         battle_ui.show_action_buttons()
     else:
@@ -581,52 +576,72 @@ func restore_state():
 
     previous_state.clear()
 
-# 移動をキャンセルする関数
+    _re_show_ranges_based_on_state()
+
+func _restore_selected_unit_state():
+    selected_unit = previous_state.selected_unit
+    selected_unit.has_moved = previous_state.has_moved
+    selected_unit.has_attacked = previous_state.has_attacked
+    selected_unit.has_acted = previous_state.has_acted
+    
+    if previous_state.selected_unit_position:
+        units.erase(selected_unit.grid_position)
+        selected_unit.position = grid_to_world(previous_state.selected_unit_position)
+        selected_unit.grid_position = previous_state.selected_unit_position
+        units[selected_unit.grid_position] = selected_unit
+
+func _re_show_ranges_based_on_state():
+    if selected_unit and not selected_unit.has_moved:
+        var movement_cells = movement_range.calculate_movement_range(selected_unit)
+        movement_range.show_movement_range(selected_unit)
+        attack_range.show_attack_range(selected_unit, movement_cells)
+    elif selected_unit and selected_unit.has_moved and not selected_unit.has_attacked:
+        attack_range.show_attack_range(selected_unit)
+
+#==================================================
+# キャンセル系
+#==================================================
 func cancel_movement():
     if selected_unit and selected_unit_previous_position != Vector2i(-1, -1):
-        # ユニットを移動前の位置に戻す
+        units.erase(selected_unit.grid_position)
         selected_unit.position = grid_to_world(selected_unit_previous_position)
         selected_unit.grid_position = selected_unit_previous_position
         units[selected_unit.grid_position] = selected_unit
         
-        # 選択したユニットの移動状態をリセット
         selected_unit.has_moved = has_moved_previous_state
         selected_unit.has_attacked = has_attacked_previous_state
         selected_unit.has_acted = has_acted_previous_state
         
         selected_unit_previous_position = Vector2i(-1, -1)
+        _clear_ranges()
+        _re_show_ranges_after_cancel()
 
-        # 移動範囲と攻撃範囲をクリア
-        movement_range.clear_range_display()
-        attack_range.clear_range_display()
-        
-        # UIを更新
         battle_ui.hide_action_buttons()
         battle_ui.hide_unit_info()
-        
-# 攻撃をキャンセルする関数
+
+func _re_show_ranges_after_cancel():
+    if selected_unit and not selected_unit.has_moved:
+        var movement_cells = movement_range.calculate_movement_range(selected_unit)
+        movement_range.show_movement_range(selected_unit)
+        attack_range.show_attack_range(selected_unit, movement_cells)
+    elif selected_unit and selected_unit.has_moved and not selected_unit.has_attacked:
+        attack_range.show_attack_range(selected_unit)
+
 func cancel_attack():
     attack_range.clear_range_display()
     battle_ui.show_action_buttons()
-    
+
 func remove_unit(unit: Unit):
-    # ユニットをチーム配列から削除
     if unit.team in active_units:
         active_units[unit.team].erase(unit)
-    
-    # ゲーム終了判定
     if check_game_end():
         print("Game has ended!")
-        
+
 func check_game_end() -> bool:
-    # プレイヤーチームのユニットがいなくなった場合
     if active_units[Team.PLAYER].is_empty():
         return true
-    
-    # 敵チームのユニットがいなくなった場合
     if active_units[Team.ENEMY].is_empty():
         return true
-    
     return false
 
 func register_unit(unit: Unit):
@@ -646,7 +661,6 @@ func _start_turn():
 
 func end_turn():
     print("Current turn ending check...")
-    # アクティブユニットの行動確認
     for unit in active_units[current_team]:
         if not unit.has_acted:
             print("Turn cannot end - ", active_units[current_team].size(), " units haven't acted yet")
@@ -654,10 +668,7 @@ func end_turn():
 
     print(get_team_name(current_team), "'s turn END")
     print("================")
-    
-    # チーム切り替え
     current_team = Team.ENEMY if current_team == Team.PLAYER else Team.PLAYER
-    
     print("================")
     print("Turn 1 - ", get_team_name(current_team), "'s turn START")
     print("Active units for current team: ", active_units[current_team].size())
@@ -668,15 +679,12 @@ func get_team_name(team: int) -> String:
 
 func is_player_turn() -> bool:
     return current_team == Team.PLAYER
-    
+
 func get_remaining_enemies() -> int:
     return active_units[Team.ENEMY].size()
 
 func end_game(is_player_victory: bool):
     print("Game Over - " + ("Player Wins!" if is_player_victory else "Enemy Wins!"))
-    # UI更新
     if battle_ui:
         battle_ui.show_game_end_message(is_player_victory)
-    
-    # ゲーム状態を終了状態に
     turn_manager.end_game()
