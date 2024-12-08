@@ -26,7 +26,6 @@ func create_range_indicator(is_attack: bool = false) -> MeshInstance3D:
 	return indicator
 
 # movement_cellsパラメータを追加
-# movement_cellsパラメータを追加
 func show_attack_range(unit: Unit, movement_cells: Array = []):
 	clear_range_display()
 	var attack_cells = calculate_attack_range(unit)
@@ -51,7 +50,6 @@ func show_attack_range(unit: Unit, movement_cells: Array = []):
 				add_child(indicator)
 				_range_indicators[cell_pos] = indicator
 
-# 既存の関数はそのまま
 func calculate_attack_range(unit: Unit) -> Array:
 	var attackable = []
 	var pos = unit.grid_position

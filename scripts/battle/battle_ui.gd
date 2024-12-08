@@ -1,3 +1,4 @@
+# scripts/battle/battle_ui.gd
 extends Control
 class_name BattleUI
 
@@ -56,3 +57,21 @@ func show_game_end_message(is_player_victory: bool):
 # ゲーム終了メッセージを非表示
 func hide_game_end_message():
 	game_end_label.visible = false
+
+# アクションボタンを非表示にする関数を追加
+func hide_action_buttons():
+	$ActionButtons.hide()
+
+# アクションボタンを表示する関数を追加
+func show_action_buttons():
+	$ActionButtons.show()
+
+# アクションボタンのシグナルを接続する関数を追加
+func connect_action_buttons(grid_manager: GridManager):
+	$ActionButtons/AttackButton.pressed.connect(func(): grid_manager.select_action(GridManager.ActionType.ATTACK))
+	$ActionButtons/MagicButton.pressed.connect(func(): grid_manager.select_action(GridManager.ActionType.MAGIC))
+	$ActionButtons/WaitButton.pressed.connect(func(): grid_manager.select_action(GridManager.ActionType.WAIT))
+
+# アクションボタンが表示されているかどうかを返す関数を追加
+func are_action_buttons_visible() -> bool:
+	return $ActionButtons.visible

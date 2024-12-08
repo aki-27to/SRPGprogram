@@ -69,6 +69,31 @@ offset_right = 290.0
 offset_bottom = 31.0
 text = "31/31"
 
+[node name="ActionButtons" type="HBoxContainer" parent="BattleUI"]
+custom_minimum_size = Vector2(100, 100)
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_top = -263.0
+offset_right = 164.0
+grow_vertical = 0
+
+[node name="AttackButton" type="Button" parent="BattleUI/ActionButtons"]
+custom_minimum_size = Vector2(50, 50)
+layout_mode = 2
+text = "攻撃"
+
+[node name="MagicButton" type="Button" parent="BattleUI/ActionButtons"]
+custom_minimum_size = Vector2(50, 50)
+layout_mode = 2
+text = "魔法"
+
+[node name="WaitButton" type="Button" parent="BattleUI/ActionButtons"]
+custom_minimum_size = Vector2(50, 50)
+layout_mode = 2
+text = "待機"
+
 [node name="BattleManager" type="Node" parent="."]
 script = ExtResource("3_ooewx")
 
