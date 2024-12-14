@@ -51,17 +51,18 @@ func _ready():
     _create_visualization()
     _create_selection_indicator()
 
-    movement_range = MovementRangeClass.new(self)
+    movement_range = MovementRangeClass.new()
+    movement_range.set_grid_manager(self)
     add_child(movement_range)
 
-    attack_range = AttackRange.new(self)
+    attack_range = AttackRange.new()
+    attack_range.set_grid_manager(self)
     add_child(attack_range)
 
     turn_manager = TurnManager.new()
     add_child(turn_manager)
     _connect_turn_signals()
 
-    # 初期UI設定
     battle_ui.hide_action_buttons()
     battle_ui.connect_action_buttons(self)
 
@@ -158,6 +159,8 @@ func _handle_waiting_direction_input(event) -> bool:
             KEY_Z:
                 waiting_for_direction = false
                 battle_ui.show_action_buttons()
+                # ★ここでは敢えてsave_state()しない
+                # 理由：Zで戻った後にさらに戻る状態を増やさないため
                 return true
     return false
 
@@ -174,32 +177,47 @@ func _handle_key_z_input(event) -> bool:
             else:
                 # 攻撃中でない場合は本来の再表示処理
                 _redisplay_ranges_after_restore()
+
             return true
 
         elif selected_unit:
-            # selected_unitがいるがis_in_actionでない場合
-            # 通常のキャンセル処理
-            if selected_action == ActionType.ATTACK:
-                cancel_attack()
-                return true
-            elif selected_unit.has_moved:
+            # まずユニットが移動済みかチェックして、移動キャンセルを優先する
+            if selected_unit.has_moved:
                 cancel_movement()
+                # キャンセル直後はsave_state()を行わない
+                # 必要に応じて次の行動開始時にsave_state()
                 return true
+
+            # それ以外に攻撃アクション中なら攻撃キャンセル
+            elif selected_action == ActionType.ATTACK:
+                cancel_attack()
+                # 攻撃キャンセル直後はsave_state()せず、次の行動時に保存
+                return true
+
     return false
 
+
 func _redisplay_ranges_after_restore():
-    if selected_unit:
-        if not selected_unit.has_moved:
-            var movement_cells = movement_range.calculate_movement_range(selected_unit)
-            movement_range.show_movement_range(selected_unit)
+    if not selected_unit:
+        return
+    var movement_cells = [] # ここで変数を宣言しておく
+
+    if not selected_unit.has_moved:
+        movement_cells = movement_range.calculate_movement_range(selected_unit)
+        movement_range.show_movement_range(selected_unit)
+        if selected_action == ActionType.ATTACK:
             attack_range.show_attack_range(selected_unit, movement_cells)
-        elif not selected_unit.has_attacked:
+    elif selected_unit.has_moved and not selected_unit.has_attacked:
+        # ここではmovement_cells不要なら宣言不要
+        if selected_action == ActionType.ATTACK:
             attack_range.show_attack_range(selected_unit)
 
 func _handle_key_space_input(event) -> bool:
     if event is InputEventKey and event.pressed and event.keycode == KEY_SPACE:
         if waiting_for_turn_end:
             _finish_turn()
+            # ターン終了後は現状が新たな基準点
+            save_state()
             return true
         elif selected_unit:
             select_action(ActionType.WAIT)
@@ -219,6 +237,8 @@ func _handle_mouse_left_click(event) -> bool:
                 var grid_pos = world_to_grid(result.position)
                 if is_valid_position(grid_pos):
                     _select_cell(grid_pos)
+                    # セル選択後、この状態を新たな基準点として保存
+                    save_state()
                     return true
     return false
 
@@ -229,6 +249,8 @@ func _finish_turn():
     waiting_for_turn_end = false
     battle_ui.hide_turn_end_button()
     turn_manager.end_turn()
+    # ターン終了後の状態を基準点として再保存
+    save_state()
 
 #==================================================
 # 行動終了処理
@@ -249,6 +271,8 @@ func _finish_wait_action():
     _clear_ranges()
     waiting_for_turn_end = true
     battle_ui.show_turn_end_button()
+    # 待機完了後、この状態を基準点として再保存
+    save_state()
 
 func _finish_generic_action():
     selected_unit.end_action()
@@ -257,6 +281,8 @@ func _finish_generic_action():
     waiting_for_turn_end = true
     battle_ui.show_turn_end_button()
     battle_ui.hide_action_buttons()
+    # アクション完了後、この状態を基準点として再保存
+    save_state()
 
 func _clear_ranges():
     movement_range.clear_range_display()
@@ -266,8 +292,8 @@ func _clear_ranges():
 # ユニット移動・アクション選択
 #==================================================
 func execute_movement(unit: Unit, target_pos: Vector2i):
+    _store_pre_movement_state(unit)  # 移動前の状態を保存
     if await move_unit(unit, target_pos):
-        _store_pre_movement_state(unit)
         unit.has_moved = true
         _clear_ranges()
         battle_ui.show_unit_info(unit)
@@ -277,6 +303,12 @@ func execute_movement(unit: Unit, target_pos: Vector2i):
             selected_action = ActionType.ATTACK
         else:
             _auto_end_turn_after_movement()
+        
+        # 移動確定後この状態を記録
+        save_state()
+        
+        # ここで行動完了とし、is_in_actionをfalseに
+        is_in_action = false
 
 func _store_pre_movement_state(unit: Unit):
     is_in_action = true
@@ -291,6 +323,7 @@ func _auto_end_turn_after_movement():
     battle_ui.hide_unit_info()
     turn_manager.end_turn()
     battle_ui.hide_action_buttons()
+    # ターン終了直後にsave_state()はend_turn内で呼んでいるので追加は不要
 
 func select_action(action_type: ActionType):
     selected_action = action_type
@@ -301,6 +334,7 @@ func select_action(action_type: ActionType):
         ActionType.ATTACK:
             battle_ui.hide_action_buttons()
             if selected_unit:
+                # 攻撃モードのみ攻撃範囲表示
                 attack_range.show_attack_range(selected_unit)
         ActionType.MAGIC:
             _finish_current_action()
@@ -317,6 +351,8 @@ func _on_turn_changed(_team: int):
     battle_ui.hide_action_buttons()
     if not turn_manager.is_player_turn():
         execute_enemy_turn()
+    # ターン開始後の状態を基準点として再保存
+    save_state()
 
 #==================================================
 # 敵ターン・AI関連
@@ -330,6 +366,7 @@ func execute_enemy_turn():
             _enemy_act(unit)
     print("Enemy turn complete")
     turn_manager.end_turn()
+    # 敵ターン終了後はend_turn()でsave_state()される
 
 func _enemy_act(enemy_unit: Unit):
     print("Enemy unit acting")
@@ -482,12 +519,17 @@ func _select_cell(grid_pos: Vector2i):
 
     if selected_unit:
         if await _attempt_attack_if_possible(target_unit, grid_pos):
+            # 攻撃実行後の状態を基準点として再保存
+            save_state()
             return
         if _attempt_move_if_in_range(grid_pos):
+            # 移動後の状態を基準点として再保存はexecute_movement内で行う
             return
 
     if target_unit and target_unit.team == Team.PLAYER and not target_unit.has_acted:
         _select_new_unit(target_unit)
+        # ユニット選択後の状態を再保存
+        save_state()
 
     selected_cell_indicator.visible = true
     selected_cell_indicator.position = grid_to_world(grid_pos)
@@ -523,12 +565,15 @@ func _execute_attack(target_unit: Unit):
     waiting_for_turn_end = true
     battle_ui.show_turn_end_button()
     battle_ui.hide_action_buttons()
+    # 攻撃終了後、この状態を基準点として再保存
+    save_state()
 
 func _attempt_move_if_in_range(grid_pos: Vector2i) -> bool:
     if selected_unit and movement_range.is_cell_in_range(grid_pos):
         is_in_action = true
         save_state()
         execute_movement(selected_unit, grid_pos)
+        # execute_movement内で移動完了後save_state()を行うのでここは不要
         return true
     return false
 
@@ -538,9 +583,13 @@ func _select_new_unit(target_unit: Unit):
     if not target_unit.has_moved:
         var movement_cells = movement_range.calculate_movement_range(target_unit)
         movement_range.show_movement_range(target_unit)
-        attack_range.show_attack_range(target_unit, movement_cells)
+        # ATTACKアクション中のみ攻撃範囲を表示
+        if selected_action == ActionType.ATTACK:
+            attack_range.show_attack_range(target_unit, movement_cells)
     elif not target_unit.has_attacked:
-        attack_range.show_attack_range(target_unit)
+        # ATTACKアクション中のみ攻撃範囲表示
+        if selected_action == ActionType.ATTACK:
+            attack_range.show_attack_range(target_unit)
 
 #==================================================
 # 状態保存・復元系
@@ -577,6 +626,9 @@ func restore_state():
     previous_state.clear()
 
     _re_show_ranges_based_on_state()
+    # ★復元直後のsave_state()は削除
+    # 状態を戻した後に即再保存せず、「もう一段戻りたい」ときに必要以上にZキーを押す必要がないようにする。
+
 
 func _restore_selected_unit_state():
     selected_unit = previous_state.selected_unit
@@ -591,12 +643,18 @@ func _restore_selected_unit_state():
         units[selected_unit.grid_position] = selected_unit
 
 func _re_show_ranges_based_on_state():
-    if selected_unit and not selected_unit.has_moved:
-        var movement_cells = movement_range.calculate_movement_range(selected_unit)
-        movement_range.show_movement_range(selected_unit)
-        attack_range.show_attack_range(selected_unit, movement_cells)
-    elif selected_unit and selected_unit.has_moved and not selected_unit.has_attacked:
-        attack_range.show_attack_range(selected_unit)
+    if selected_unit:
+        # 攻撃アクション以外では攻撃範囲を表示しない
+        var show_attack = (selected_action == ActionType.ATTACK)
+        var movement_cells = []
+        if not selected_unit.has_moved:
+            movement_cells = movement_range.calculate_movement_range(selected_unit)
+            movement_range.show_movement_range(selected_unit)
+            if show_attack:
+                attack_range.show_attack_range(selected_unit, movement_cells)
+        elif selected_unit.has_moved and not selected_unit.has_attacked:
+            if show_attack:
+                attack_range.show_attack_range(selected_unit)
 
 #==================================================
 # キャンセル系
@@ -620,16 +678,22 @@ func cancel_movement():
         battle_ui.hide_unit_info()
 
 func _re_show_ranges_after_cancel():
-    if selected_unit and not selected_unit.has_moved:
-        var movement_cells = movement_range.calculate_movement_range(selected_unit)
-        movement_range.show_movement_range(selected_unit)
-        attack_range.show_attack_range(selected_unit, movement_cells)
-    elif selected_unit and selected_unit.has_moved and not selected_unit.has_attacked:
-        attack_range.show_attack_range(selected_unit)
+    if selected_unit:
+        var show_attack = (selected_action == ActionType.ATTACK)
+        if not selected_unit.has_moved:
+            var movement_cells = movement_range.calculate_movement_range(selected_unit)
+            movement_range.show_movement_range(selected_unit)
+            if show_attack:
+                attack_range.show_attack_range(selected_unit, movement_cells)
+        elif selected_unit.has_moved and not selected_unit.has_attacked:
+            if show_attack:
+                attack_range.show_attack_range(selected_unit)
 
 func cancel_attack():
     attack_range.clear_range_display()
     battle_ui.show_action_buttons()
+    # 攻撃キャンセル直後もsave_state()はしない
+    # 次の行動開始時にsave_state()する
 
 func remove_unit(unit: Unit):
     if unit.team in active_units:
@@ -658,6 +722,8 @@ func _start_turn():
     for unit in active_units[current_team]:
         unit.reset_actions()
     turn_changed.emit(current_team)
+    # ターン開始時点で状態を保存
+    save_state()
 
 func end_turn():
     print("Current turn ending check...")
@@ -673,6 +739,7 @@ func end_turn():
     print("Turn 1 - ", get_team_name(current_team), "'s turn START")
     print("Active units for current team: ", active_units[current_team].size())
     _start_turn()
+    # ターン終了後、_start_turn()で再度save_state()されるため、ここでは不要
 
 func get_team_name(team: int) -> String:
     return "Player" if team == Team.PLAYER else "Enemy"

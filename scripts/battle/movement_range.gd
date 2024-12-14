@@ -8,7 +8,7 @@ var _current_range: Array[Vector2i] = []
 var _movement_map: Dictionary = {}  # 残り移動力を記録するマップ
 var _current_unit: Unit = null
 
-func _init(manager: GridManager):
+func set_grid_manager(manager: GridManager):
 	_grid_manager = manager
 
 func create_range_indicator() -> MeshInstance3D:

@@ -67,7 +67,7 @@ func show_action_buttons():
 	$ActionButtons.show()
 
 # アクションボタンのシグナルを接続する関数を追加
-func connect_action_buttons(grid_manager: GridManager):
+func connect_action_buttons(grid_manager):
 	$ActionButtons/AttackButton.pressed.connect(func(): grid_manager.select_action(GridManager.ActionType.ATTACK))
 	$ActionButtons/MagicButton.pressed.connect(func(): grid_manager.select_action(GridManager.ActionType.MAGIC))
 	$ActionButtons/WaitButton.pressed.connect(func(): grid_manager.select_action(GridManager.ActionType.WAIT))

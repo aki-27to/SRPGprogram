@@ -5,7 +5,7 @@ class_name AttackRange
 var _grid_manager: GridManager
 var _range_indicators: Dictionary = {}
 
-func _init(manager: GridManager):
+func set_grid_manager(manager: GridManager):
 	_grid_manager = manager
 
 # 色指定を追加
