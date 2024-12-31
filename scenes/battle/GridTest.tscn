@@ -1,4 +1,4 @@
-[gd_scene load_steps=7 format=3 uid="uid://dus2f8v06tv1k"]
+[gd_scene load_steps=8 format=3 uid="uid://dus2f8v06tv1k"]
 
 [ext_resource type="Script" path="res://scripts/test/grid_test.gd" id="1_3qegs"]
 [ext_resource type="Script" path="res://scripts/battle/grid_manager.gd" id="1_ysxlc"]
@@ -7,11 +7,16 @@
 [ext_resource type="Script" path="res://scripts/battle/battle_ui.gd" id="5_yn21y"]
 [ext_resource type="Script" path="res://scripts/battle/Camera3D.gd" id="6_vgux4"]
 
+[sub_resource type="MeshLibrary" id="MeshLibrary_8ko86"]
+
 [node name="GridTest" type="Node3D"]
 script = ExtResource("1_3qegs")
 
 [node name="GridManager" type="Node3D" parent="."]
 script = ExtResource("1_ysxlc")
+
+[node name="GridMap" type="GridMap" parent="GridManager"]
+mesh_library = SubResource("MeshLibrary_8ko86")
 
 [node name="BattleUI" type="Control" parent="."]
 layout_mode = 3
